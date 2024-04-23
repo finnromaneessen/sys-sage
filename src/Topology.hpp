@@ -41,6 +41,8 @@ Generic class Component - all components inherit from this class, i.e. this clas
 */
 class Component {
 public:
+    Component(const Component& c): id(c.id), depth(c.depth), name(c.name), componentType(c.componentType) {};
+
     /**
     Generic Component constructor (no automatic insertion in the Component Tree). Usually one of the derived subclasses for different Component Types will be created. Sets:
     @param _id = id, default 0
@@ -50,7 +52,7 @@ public:
     Component(int _id = 0, string _name = "unknown", int _componentType = SYS_SAGE_COMPONENT_NONE);
     /**
     Generic Component constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Usually one of the derived subclasses for different Component Types will be created. Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = id, default 0
     @param _name = name, default "unknown"
     @param _componentType = componentType, default SYS_SAGE_COMPONENT_NONE
@@ -306,7 +308,7 @@ public:
     @see exportToXml(Component* root, string path = "", std::function<int(string,void*,string*)> custom_search_attrib_key_fcn = NULL);
     */
     xmlNodePtr CreateXmlSubtree();
-    
+
     /**
     Deletes all DataPaths of this component.
     */
@@ -369,6 +371,7 @@ public:
     \n componentType=>SYS_SAGE_COMPONENT_TOPOLOGY
     */
     Topology();
+    Topology(const Topology& t) = default;
     /**
      * TODO
     */
@@ -391,12 +394,13 @@ public:
     Node(int _id = 0, string _name = "Node");
     /**
     Node constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = id, default 0
     @param _name = name, default "Node"
     @param componentType=>SYS_SAGE_COMPONENT_NODE
     */
     Node(Component * parent, int _id = 0, string _name = "Node");
+    Node(const Node& n) = default;
     /**
      * TODO
     */
@@ -433,12 +437,15 @@ public:
     Memory();
     /**
     Memory constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = 0
     @param _name = name, default "Memory"
     @param componentType=>SYS_SAGE_COMPONENT_MEMORY
     */
     Memory(Component * parent, string _name = "Memory", long long _size = -1);
+
+    Memory(const Memory& m) = default;
+
     /**
      * TODO
     */
@@ -481,12 +488,14 @@ public:
     Storage();
     /**
     Storage constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = 0
     @param _name = "Storage"
     @param componentType=>SYS_SAGE_COMPONENT_STORAGE
     */
     Storage(Component * parent);
+
+    Storage(const Storage& s) = default;
     /**
      * TODO
     */
@@ -524,13 +533,15 @@ public:
     Chip(int _id = 0, string _name = "Chip", int _type = SYS_SAGE_CHIP_TYPE_NONE);
     /**
     Chip constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = id, default 0
     @param _name = name, default "Chip"
     @param _type = chip type, default SYS_SAGE_CHIP_TYPE_NONE. Defines which chip we are describing. The options are: SYS_SAGE_CHIP_TYPE_NONE (default/generic), SYS_SAGE_CHIP_TYPE_CPU, SYS_SAGE_CHIP_TYPE_CPU_SOCKET, SYS_SAGE_CHIP_TYPE_GPU.
     @param componentType=>SYS_SAGE_COMPONENT_CHIP
     */
     Chip(Component * parent, int _id = 0, string _name = "Chip", int _type = SYS_SAGE_CHIP_TYPE_NONE);
+
+    Chip(const Chip& c) = default;
     /**
      * TODO
     */
@@ -594,7 +605,7 @@ public:
     Cache(int _id = 0, int  _cache_level = 0, long long _cache_size = -1, int _associativity = -1, int _cache_line_size = -1);
     /**
     Cache constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = id, default 0
     @param _cache_type - (string) name/type of the cache (constant, textture, L1, ...). Only one of (int) cache_level or (string) cache_type can be used.
     @param _cache_size - size of the cache (Bytes), default 0
@@ -605,7 +616,7 @@ public:
     Cache(Component * parent, int _id, string _cache_type, long long _cache_size = 0, int _associativity = -1, int _cache_line_size = -1);
     /**
     Cache constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = id, default 0
     @param _cache_level - (int) cache level (1=L1, 2=L2, ...), default 0. This value is represented as a cahce_type, i.e. either one of int cache_level or string cache_type can be used.
     @param _cache_size - size of the cache (Bytes), default 0
@@ -614,6 +625,8 @@ public:
     @param componentType=>SYS_SAGE_COMPONENT_CACHE
     */
     Cache(Component * parent, int _id = 0, int _cache_level = 0, long long _cache_size = -1, int _associativity = -1, int _cache_line_size = -1);
+
+    Cache(const Cache& c) = default;
     /**
      * TODO
     */
@@ -679,12 +692,14 @@ public:
     Subdivision(int _id = 0, string _name = "Subdivision", int _componentType = SYS_SAGE_COMPONENT_SUBDIVISION);
     /**
     Subdivision constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = id, default 0
     @param _name = name, default "Subdivision"
     @param _componentType, componentType, default SYS_SAGE_COMPONENT_SUBDIVISION. If componentType is not SYS_SAGE_COMPONENT_SUBDIVISION or SYS_SAGE_COMPONENT_NUMA, it is set to SYS_SAGE_COMPONENT_SUBDIVISION as default option.
     */
     Subdivision(Component * parent, int _id = 0, string _name = "Subdivision", int _componentType = SYS_SAGE_COMPONENT_SUBDIVISION);
+
+    Subdivision(const Subdivision& s) = default;
     /**
      * TODO
     */
@@ -722,13 +737,15 @@ public:
     Numa(int _id = 0, long long _size = -1);
     /**
     Numa constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = id, default 0
     @param _name = name, default "Numa"
     @param _size = size or capacity of the NUMA region, default -1, i.e. no value.
     @param componentType=>SYS_SAGE_COMPONENT_NUMA
     */
     Numa(Component * parent, int _id = 0, long long _size = -1);
+
+    Numa(const Numa& n) = default;
     /**
      * TODO
     */
@@ -763,12 +780,14 @@ public:
     Core(int _id = 0, string _name = "Core");
     /**
     Core constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = id, default 0
     @param _name = name, default "Core"
     @param componentType=>SYS_SAGE_COMPONENT_CORE
     */
     Core(Component * parent, int _id = 0, string _name = "Core");
+
+    Core(const Core& c) = default;
     /**
      * TODO
     */
@@ -800,12 +819,14 @@ public:
     Thread(int _id = 0, string _name = "Thread");
     /**
     Thread constructor with insertion into the Component Tree as the parent 's child (as long as parent is an existing Component). Sets:
-    @param parent = the parent 
+    @param parent = the parent
     @param _id = id, default 0
     @param _name = name, default "Thread"
     @param componentType=>SYS_SAGE_COMPONENT_THREAD
-    */    
+    */
     Thread(Component * parent, int _id = 0, string _name = "Thread");
+
+    Thread(const Thread& t) = default;
     /**
      * TODO
     */

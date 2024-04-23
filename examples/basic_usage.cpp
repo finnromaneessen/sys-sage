@@ -35,7 +35,6 @@ int main(int argc, char *argv[])
     Topology* topo = new Topology();
     Node* n = new Node(topo, 1);
 
-    
     cout << "-- Parsing Hwloc output from file " << topoPath << endl;
     if(parseHwlocOutput(n, topoPath) != 0) { //adds topo to a next node
         usage(argv[0]);

@@ -6,7 +6,7 @@
 #include "defines.hpp"
 #include "Topology.hpp"
 
-//Component pointing to a DataPath 
+//Component pointing to a DataPath
 #define SYS_SAGE_DATAPATH_NONE 1 /**< TODO */
 #define SYS_SAGE_DATAPATH_OUTGOING 2 /**< This Component is the source DataPath. */
 #define SYS_SAGE_DATAPATH_INCOMING 4 /**< This Component is the taerget DataPath. */

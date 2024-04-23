@@ -1,6 +1,6 @@
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-#defines.hpp header with #cmakedefine 
+#defines.hpp header with #cmakedefine
 configure_file(${PROJECT_SOURCE_DIR}/src/defines.hpp.in ${PROJECT_SOURCE_DIR}/src/defines.hpp)
 
 set(SOURCES
@@ -14,6 +14,7 @@ set(SOURCES
     parsers/caps-numa-benchmark.cpp
     parsers/gpu-topo.cpp
     parsers/cccbench.cpp
+    shared_mem.cpp
     )
 
 set(HEADERS
@@ -26,12 +27,13 @@ set(HEADERS
     parsers/caps-numa-benchmark.hpp
     parsers/gpu-topo.hpp
     parsers/cccbench.cpp
+    shared_mem.hpp
     )
 
 add_library(sys-sage SHARED ${SOURCES} ${HEADERS})
 
-target_include_directories(sys-sage PUBLIC  
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>  
+target_include_directories(sys-sage PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:inc>
     $<INSTALL_INTERFACE:lib>
 )

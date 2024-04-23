@@ -5,7 +5,7 @@
 void Component::PrintSubtree() { PrintSubtree(0); }
 void Component::PrintSubtree(int level)
 {
-    
+
     //cout << "---PrintSubtree---" << endl;
     for (int i = 0; i < level; ++i)
         cout << "  ";
@@ -24,7 +24,7 @@ void Component::PrintAllDataPathsInSubtree()
     vector<Component*> subtreeList;
     GetSubtreeNodeList(&subtreeList);
     for(Component * c : subtreeList)
-    {   
+    {
         vector<DataPath*>* dp_in = c->GetDataPaths(SYS_SAGE_DATAPATH_INCOMING);
         vector<DataPath*>* dp_out = c->GetDataPaths(SYS_SAGE_DATAPATH_OUTGOING);
         if(dp_in->size() > 0 || dp_out->size() > 0 )
@@ -114,15 +114,15 @@ int Component::GetTopoTreeDepth()
 
 void Component::GetComponentsNLevelsDeeper(vector<Component*>* outArray, int depth)
 {
-    
+
     if(depth <= 0)
-    {   
+    {
         outArray->push_back(this);
         // depth++;
         return;
     }
     for(Component* child: children)
-    {   
+    {
         cout << GetComponentTypeStr() << " (name " << name << ") id " << id << " - children: " << children.size();
         cout << " depth: " << depth<<"\n";
         child->GetComponentsNLevelsDeeper(outArray, depth - 1);
@@ -405,8 +405,8 @@ int Component::GetTopologySize(unsigned * out_component_size, unsigned * out_dat
         subtreeSize += (*it)->GetTopologySize(out_component_size, out_dataPathSize, counted_dataPaths);
     }
 
-    if(counted_dataPaths != NULL)
-        delete counted_dataPaths;
+    //if(counted_dataPaths != NULL)
+       // delete counted_dataPaths;
     return component_size + dataPathSize + subtreeSize;
 }
 
@@ -427,9 +427,9 @@ void Component::DeleteAllDataPaths()
 void Component::DeleteSubtree()
 {
     while(children.size() > 0)
-    {       
+    {
         children[0]->Delete(true); // Recursively free children
-    }    
+    }
     return;
 }
 void Component::Delete(bool withSubtree)
@@ -440,25 +440,25 @@ void Component::Delete(bool withSubtree)
         DeleteSubtree();
     }
     DeleteAllDataPaths();
-    
+
     //Free all the children
-    if(GetParent()!= NULL) 
+    if(GetParent()!= NULL)
     {
         Component *myParent = GetParent();
         myParent->RemoveChild(this);
         if (!withSubtree)
         {
             for(Component* child: children)
-            {   
+            {
                 child->SetParent(myParent);
                 myParent->InsertChild(child);
             }
-        }    
+        }
     }
     else //if(GetParent() == NULL && !withSubtree)
     {
         while(children.size() > 0)
-        {       
+        {
             RemoveChild(children[0]); // Recursively free children
             children[0]->SetParent(NULL);
         }
@@ -474,7 +474,7 @@ int Component::GetComponentType(){return componentType;}
 string Component::GetName(){return name;}
 int Component::GetId(){return id;}
 
-void Storage::SetSize(long long _size){size = _size;} 
+void Storage::SetSize(long long _size){size = _size;}
 long long Storage::GetSize(){return size;}
 
 string Chip::GetVendor(){return vendor;}
@@ -505,11 +505,11 @@ int Cache::GetCacheLevel(){
         }
     }
 
-    if (!extractedDigits.empty()) 
+    if (!extractedDigits.empty())
         return stoi(extractedDigits);
-    else 
+    else
         return 0;
-    
+
 }
 long long Cache::GetCacheSize(){return cache_size;}
 void Cache::SetCacheSize(long long _cache_size){cache_size = _cache_size;}

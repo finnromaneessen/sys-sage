@@ -9,5 +9,6 @@
 #include "parsers/caps-numa-benchmark.hpp"
 #include "parsers/gpu-topo.hpp"
 #include "parsers/cccbench.hpp"
+#include "shared_mem.hpp"
 
 #endif //SYS_SAGE
