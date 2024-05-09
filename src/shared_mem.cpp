@@ -1,26 +1,58 @@
 #include "shared_mem.hpp"
 
-MemoryManager::MemoryManager(std::string path, size_t size)
+SharedMemory::SharedMemory(std::string path, size_t size)
     : size(size), path(path) {
   mem = create_shared_memory(path, size);
   cur = (char *)mem;
 }
 
-MemoryManager::MemoryManager(std::string path) {
+SharedMemory::SharedMemory(std::string path) {
   mem = open_shared_memory(path);
   cur = (char *)mem;
 
   size = *((size_t *)mem - 1);
-  std::cout << "MemoryManager() size = " << size << std::endl;
 }
 
-size_t calc_memory_size(Component *tree) {
+size_t att(std::map<std::string, void *> *attribs,
+           CopyAttrib (*pack)(std::pair<std::string, void *>)) {
+  size_t size = 0;
+  for (const auto &a : *attribs) {
+    auto [key, size_attrib, ptr] = pack(a);
+    size += size_attrib + key.size() + sizeof(size_t);
+  }
+  return size;
+}
+
+size_t attrib_memory_size(Component *comp,
+                          CopyAttrib (*pack)(std::pair<std::string, void *>)) {
+  size_t size = att(&(comp->attrib), pack);
+
+  for (const auto &dp : *(comp->GetDataPaths(SYS_SAGE_DATAPATH_OUTGOING))) {
+    size += att(&(dp->attrib), pack);
+    size += 2 * sizeof(size_t);  // Account for DataPath copy overhead
+  }
+
+  for (const auto &dp : *(comp->GetDataPaths(SYS_SAGE_DATAPATH_INCOMING))) {
+    size += att(&(dp->attrib), pack);
+    size += 2 * sizeof(size_t);  // Account for DataPath copy overhead
+  }
+
+  for (const auto &c : *(comp->GetChildren())) {
+    size += attrib_memory_size(c, pack);
+  }
+
+  return size;
+}
+
+size_t calc_memory_size(Component *tree,
+                        CopyAttrib (*pack)(std::pair<std::string, void *>)) {
   unsigned a, b;
   size_t min_size = tree->GetTopologySize(&a, &b);
+  min_size += attrib_memory_size(tree, pack);
+
   size_t tmp = (min_size + PAGE_SIZE - 1) & -PAGE_SIZE;
 
-  std::cout << "cal_memory_size(): " << tmp << " | " << (tmp % PAGE_SIZE)
-            << std::endl;
+  std::cout << "calc_memory_size(): " << tmp << " | " << min_size << std::endl;
 
   return tmp;
 }
@@ -80,19 +112,17 @@ std::pair<std::string, void *> unpack_default(
   if (!key.compare("CUDA_compute_capability") || !key.compare("mig_uuid")) {
     std::string *str = new std::string((char *)value);
     free(value);
-
     return {key, str};
   }
 
   if (!key.compare("freq_history")) {
     char *end = (char *)value + size;
-    std::cout << "unpack_default() size: " << size << " | "
-              << sizeof(std::tuple<long long, double>) << std::endl;
+
     std::vector<std::tuple<long long, double>> *vec =
         new std::vector<std::tuple<long long, double>>(
             (std::tuple<long long, double> *)value,
             (std::tuple<long long, double> *)end);
-    // TODO free value?
+
     free(value);
     return {key, vec};
   }
@@ -100,12 +130,32 @@ std::pair<std::string, void *> unpack_default(
   return {key, value};
 }
 
-size_t export_recursive(MemoryManager *manager, Component *component,
+void export_attribs(SharedMemory *manager,
+                    CopyAttrib (*pack)(std::pair<std::string, void *>),
+                    std::map<std::string, void *> *attribs) {
+  size_t *num_attribs = (size_t *)manager->cur;
+  *num_attribs = 0;
+  manager->cur += sizeof(size_t);
+
+  CopyAttrib attrib;
+
+  for (auto const &a : *attribs) {
+    if (attrib = pack_default(a); attrib.size != 0) {
+      (*num_attribs)++;
+      manager->cur += attrib.copy(manager->cur);
+    } else if (attrib = pack(a); attrib.size != 0) {
+      (*num_attribs)++;
+      manager->cur += attrib.copy(manager->cur);
+    }
+  }
+}
+
+size_t export_recursive(SharedMemory *manager, Component *component,
                         CopyAttrib (*pack)(std::pair<std::string, void *>)) {
-  std::cout << "----- Export -----" << std::endl;
+  // std::cout << "----- Export ID " << component->GetId() << " -----"
+  //          << std::endl;
 
   // Get own size
-  // TODO Better Solution??
   auto size_comp = 0;
   switch (component->GetComponentType()) {
     case SYS_SAGE_COMPONENT_THREAD:
@@ -153,9 +203,6 @@ size_t export_recursive(MemoryManager *manager, Component *component,
       break;
   }
 
-  std::cout << "Export: Component-Size: " << size_comp
-            << " | ID: " << component->GetId() << std::endl;
-
   // Get own offset
   auto self_offset = (size_t)manager->cur - (size_t)manager->mem;
 
@@ -164,55 +211,43 @@ size_t export_recursive(MemoryManager *manager, Component *component,
   Component *c = (Component *)manager->cur;
   manager->cur += size_comp;
 
-  // ----- Export attribs -----
-  size_t *num_attribs = (size_t *)manager->cur;
-  *num_attribs = 0;
-  manager->cur += sizeof(size_t);  // TODO calc small things into memory size??
-
-  CopyAttrib attrib;
-
-  for (auto const &a : component->attrib) {
-    if (attrib = pack_default(a); attrib.size != 0) {
-      (*num_attribs)++;
-      manager->cur += attrib.copy(manager->cur);
-    } else if (attrib = pack(a); attrib.size != 0) {
-      (*num_attribs)++;
-      manager->cur += attrib.copy(manager->cur);
+  // ----- DataPaths -----
+  for (DataPath *dp : *(component->GetDataPaths(SYS_SAGE_DATAPATH_OUTGOING))) {
+    if (auto search = manager->dp_offsets.find(dp);
+        search != manager->dp_offsets.end()) {
+      if (search->second.first == ~0 && search->second.second != self_offset) {
+        search->second.first = self_offset;
+      }
+    } else {
+      manager->dp_offsets[dp] = {self_offset, ~0};
     }
-
-    /*TODO Remove
-    if (manager->attrib_sizes.find(a.first) != manager->attrib_sizes.end()) {
-      (*num_attribs)++;
-      auto size = manager->attrib_sizes[a.first];
-
-      CopyAttrib copy_attrib{a.first, size, a.second};
-      manager->cur += copy_attrib.copy(manager->cur);
-    } else if ((custom_attrib = pack(a)); custom_attrib.size != 0) {
-      std::cout << "Export: custom attrib " << a.first
-                << " exported. Size: " << custom_attrib.size << std::endl;
-      (*num_attribs)++;
-      manager->cur += custom_attrib.copy(manager->cur);
-    }*/
   }
-  std::cout << "Export: num_attribs = " << *num_attribs << std::endl;
+
+  for (DataPath *dp : *(component->GetDataPaths(SYS_SAGE_DATAPATH_INCOMING))) {
+    if (auto search = manager->dp_offsets.find(dp);
+        search != manager->dp_offsets.end()) {
+      if (search->second.second == ~0 && search->second.first != self_offset) {
+        search->second.second = self_offset;
+      }
+    } else {
+      manager->dp_offsets[dp] = {~0, self_offset};
+    }
+  }
+
+  // ----- Export attribs -----
+  export_attribs(manager, pack, &(component->attrib));
 
   // ----- Export children -----
   auto size_children = component->GetChildren()->size();
   auto offset_children = (size_t)manager->cur - (size_t)manager->mem;
-
-  std::cout << "Export: size_children = " << size_children
-            << " | offset_children = " << offset_children << std::endl;
 
   size_t *children_data = (size_t *)manager->cur;
   manager->cur += size_children * sizeof(Component *);
 
   // Calculate offsets for children
   for (size_t i = 0; i < size_children; i++) {
-    size_t o = export_recursive(manager, c->GetChildren()->at(i), pack);
-
-    std::cout << "Export: ID " << component->GetId()
-              << " - Calculated Offset: " << o << std::endl;
-    *(children_data++) = o;
+    *(children_data++) =
+        export_recursive(manager, c->GetChildren()->at(i), pack);
   }
 
   // Create CopyVector for children
@@ -222,28 +257,98 @@ size_t export_recursive(MemoryManager *manager, Component *component,
   return self_offset;
 }
 
-MemoryManager *export_component(
+void export_datapaths(SharedMemory *manager,
+                      CopyAttrib (*pack)(std::pair<std::string, void *>)) {
+  size_t *num_dp = (size_t *)(manager->cur);
+  *num_dp = 0;
+  manager->cur += sizeof(size_t);
+
+  for (auto const &[dp, offsets] : manager->dp_offsets) {
+    // Only export DataPaths when both Components are exported
+    if (offsets.first == ~0 || offsets.second == ~0) {
+      continue;
+    }
+    (*num_dp)++;
+
+    // ----- Write offsets -----
+    size_t *tmp = (size_t *)(manager->cur);
+    *(tmp++) = offsets.first;
+    *tmp = offsets.second;
+    manager->cur += 2 * sizeof(size_t);
+
+    // ----- Export DataPath -----
+    memcpy(manager->cur, (void *)dp, sizeof(DataPath));
+    manager->cur += sizeof(DataPath);
+
+    // ----- Export attribs -----
+    export_attribs(manager, pack, &(dp->attrib));
+  }
+}
+
+void import_attribs(SharedMemory *manager,
+                    std::map<std::string, void *> *attribs,
+                    std::pair<std::string, void *> (*unpack)(
+                        size_t size, std::pair<std::string, void *>)) {
+  size_t num_attribs = *(size_t *)manager->cur;
+  manager->cur += sizeof(size_t);
+
+  for (size_t i = 0; i < num_attribs; i++) {
+    const auto [total_size, key, value] = recreate_attrib(manager->cur);
+    size_t size_attrib = total_size - (key.size() + 1 + sizeof(size_t));
+
+    attribs->insert(
+        unpack(size_attrib, unpack_default(size_attrib, {key, value})));
+
+    manager->cur += total_size;
+  }
+}
+
+void import_datapaths(SharedMemory *manager,
+                      std::pair<std::string, void *> (*unpack)(
+                          size_t size, std::pair<std::string, void *>)) {
+  size_t num_dp = *(size_t *)manager->cur;
+  manager->cur += sizeof(size_t);
+
+  for (auto i = 0; i < num_dp; i++) {
+    // ----- Translate component offsets -----
+    Component *in = manager->comp_offsets[*(size_t *)manager->cur];
+    manager->cur += sizeof(size_t);
+
+    Component *out = manager->comp_offsets[*(size_t *)manager->cur];
+    manager->cur += sizeof(size_t);
+
+    // ----- Import DataPath -----
+    DataPath *tmp = (DataPath *)manager->cur;
+    DataPath *dp = new DataPath(in, out, tmp->GetOriented(), tmp->GetDpType(),
+                                tmp->GetBw(), tmp->GetLatency());
+
+    manager->cur += sizeof(DataPath);
+    // ----- Import attribs -----
+    import_attribs(manager, &(dp->attrib), unpack);
+  }
+}
+
+SharedMemory *export_component(
     std::string path, Component *component,
     CopyAttrib (*pack)(std::pair<std::string, void *>)) {
-  MemoryManager *manager = new MemoryManager(path, calc_memory_size(component));
-
+  SharedMemory *manager =
+      new SharedMemory(path, calc_memory_size(component, pack));
   export_recursive(manager, component, pack);
+  export_datapaths(manager, pack);
   return manager;
 }
 
-MemoryManager *export_component(std::string path, Component *component) {
+SharedMemory *export_component(std::string path, Component *component) {
   return export_component(
       path, component, [](std::pair<std::string, void *> attrib) -> CopyAttrib {
         return {attrib.first, 0, nullptr};
       });
 }
 
-Component *import_recursive(MemoryManager *manager,
+Component *import_recursive(SharedMemory *manager,
                             std::pair<std::string, void *> (*unpack)(
                                 size_t size, std::pair<std::string, void *>)) {
-  std::cout << "----- Import -----" << std::endl;
-  std::cout << "Import: offset = "
-            << ((size_t)manager->cur - (size_t)manager->mem) << std::endl;
+  // std::cout << "----- Import -----" << std::endl;
 
   Component *com = (Component *)manager->cur;
   Component *component = nullptr;
@@ -305,36 +410,24 @@ Component *import_recursive(MemoryManager *manager,
       size_comp = sizeof(Component);
       break;
   }
+  // ----- Import DataPaths -----
+  auto self_offset = (size_t)manager->cur - (size_t)manager->mem;
+  manager->comp_offsets.insert({self_offset, component});
 
   manager->cur += size_comp;
-  std::cout << "Import: component->id = " << component->GetId() << std::endl;
 
   // ----- Import attribs -----
-  size_t num_attribs = *(size_t *)manager->cur;
-  manager->cur += sizeof(size_t);
-  std::cout << "Import: num_attribs = " << num_attribs << std::endl;
-
-  for (size_t i = 0; i < num_attribs; i++) {
-    const auto [total_size, key, value] = recreate_attrib(manager->cur);
-    size_t size_attrib = total_size - (key.size() + 1 + sizeof(size_t));
-    std::cout << "Import: attrib " << key << " imported" << std::endl;
-    component->attrib.insert(
-        unpack(size_attrib, unpack_default(size_attrib, {key, value})));
-
-    manager->cur += total_size;
-  }
+  import_attribs(manager, &(component->attrib), unpack);
 
   // ----- Import Children -----
   CopyVector *cp_children = (CopyVector *)(com->GetChildren());
-  std::cout << "Import: cp->offset = " << cp_children->offset << std::endl;
-  std::cout << "Import: children size = " << cp_children->size << std::endl;
+  auto children_data =
+      (size_t *)((char *)manager->mem +
+                 cp_children
+                     ->offset);  // TODO Actually copy data out of shared memory
 
-  auto children_data = (size_t *)((char *)manager->mem + cp_children->offset);
-  auto children_vec =
-      vector<size_t>(children_data, children_data + cp_children->size);
-
-  for (size_t offset : children_vec) {
-    manager->cur = (char *)manager->mem + offset;
+  for (size_t i = 0; i < cp_children->size; i++) {
+    manager->cur = (char *)manager->mem + *(children_data++);
     component->InsertChild(import_recursive(manager, unpack));
   }
 
@@ -351,11 +444,9 @@ Component *import_component(std::string path) {
 Component *import_component(std::string path,
                             std::pair<std::string, void *> (*unpack)(
                                 size_t size, std::pair<std::string, void *>)) {
-  MemoryManager *manager = new MemoryManager(path);
-
+  SharedMemory *manager = new SharedMemory(path);
   Component *c = import_recursive(manager, unpack);
-  std::cout << "Import: name = " << c->GetChildren()->at(0)->GetId()
-            << std::endl;
+  import_datapaths(manager, unpack);
 
   delete manager;
   return c;
@@ -378,15 +469,15 @@ std::tuple<size_t, std::string, void *> recreate_attrib(void *src) {
     std::cout << "recreate_attrib(): ERROR (malloc failed)\n";
     return {0, "", nullptr};  // TODO Error Handling?
   }
-  memcpy(val, cur, size);
 
-  std::cout << "recreate_attrib(): " << *((uint64_t *)val) << std::endl;
+  memcpy(val, cur, size);
 
   size_t total_size = key.size() + 1 + sizeof(size_t) + size;
   return {total_size, key, val};
 }
 
-void *create_shared_memory(const std::string path, size_t size) {
+void *create_shared_memory(const std::string path,
+                           size_t size) {  // TODO Error handling (No exit)
   int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600);
   if (fd == -1) {
     perror("Error opening file for writing");
@@ -416,8 +507,6 @@ void *create_shared_memory(const std::string path, size_t size) {
     exit(EXIT_FAILURE);
   }
 
-  std::cout << "Created shared memory at " << path << std::endl;
-
   // Adjust for "header"
   *map++ = size;
 
@@ -431,15 +520,11 @@ void *open_shared_memory(const std::string path) {
     exit(EXIT_FAILURE);
   }
 
-  // TODO Cleaner??
+  // Create mapping, read size and remap
   size_t *tmp = (size_t *)mmap(0, sizeof(size_t), PROT_READ, MAP_SHARED, fd, 0);
   size_t size = *tmp;
   munmap(tmp, size);
   char *map = (char *)mmap(0, size, PROT_READ, MAP_SHARED, fd, 0);
-
-  std::cout << "OPEN_SHARED: " << size << std::endl;
-
-  // char *map = (char *)mremap(size, sizeof(size_t), *size, MREMAP_MAYMOVE);
 
   if (map == MAP_FAILED) {
     close(fd);
@@ -449,9 +534,5 @@ void *open_shared_memory(const std::string path) {
 
   // Adjust map for size "header"
   map += sizeof(size_t);
-  std::cout << "HERE\n";
-
-  std::cout << "Opened shared memory at " << path << std::endl;
-
   return map;
 }

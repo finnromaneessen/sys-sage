@@ -16,9 +16,6 @@
 
 #include "Topology.hpp"
 
-#define MEM_CREATE 1
-#define MEM_OPEN 0
-
 #define PAGE_SIZE 4096
 
 void* create_shared_memory(const std::string path, size_t size);
@@ -27,11 +24,14 @@ void* open_shared_memory(const std::string path);
 struct CopyVector {
   size_t offset;
   size_t size;
-  CopyVector(int offset, size_t size)
-      : offset(offset), size(size){};  // TODO Probably not needed
+  CopyVector(int offset, size_t size) : offset(offset), size(size){};
 };
 
-struct CopyAttrib {  // TODO RENAME?
+/**
+ * @brief Struct used to help copy attribs (std::pair<std::string, void*>) into
+ * shared memory
+ */
+struct CopyAttrib {
   std::string key;
   size_t size;
   void* data;
@@ -75,45 +75,29 @@ struct CopyAttrib {  // TODO RENAME?
  */
 std::tuple<size_t, std::string, void*> recreate_attrib(void* src);
 
-class MemoryManager {  // TODO Rename to SharedMemory?
+class SharedMemory {
  public:
   void* mem;
   char* cur;
   size_t size;
-  MemoryManager(std::string path, size_t size);
-  MemoryManager(std::string path);
-  ~MemoryManager() { munmap(mem, size); }
+  std::map<DataPath*, std::pair<size_t, size_t>> dp_offsets;
+  std::map<size_t, Component*> comp_offsets;
 
-  // TODO calc_tree_size() (preexistent?)
+  std::string GetPath() { return path; }
 
-  std::map<std::string, size_t> attrib_sizes = {
-      // TODO REMOVE
-      {"CATcos", sizeof(uint64_t)},
-      {"CATL3mask", sizeof(uint64_t)},
-      {"mig_size", sizeof(long long)},
-      {"Number_of_streaming_multiprocessors", sizeof(int)},
-      {"Number_of_cores_in_GPU", sizeof(int)},
-      {"Number_of_cores_per_SM", sizeof(int)},
-      {"Bus_Width_bit", sizeof(int)},
-      {"Clock_Frequency", sizeof(double)},
-      {"latency", sizeof(float)},
-      {"latency_min", sizeof(float)},
-      {"latency_max", sizeof(float)},
-      //{"CUDA_compute_capability", sizeof(std::string)},
-      //{"mig_uuid", sizeof(std::string)},
-      //{"freq_history", sizeof(std::vector<std::tuple<long long,double>>)},
-      //{"GPU_Clock_Rate", sizeof(std::tuple<double, std::string>)},
-  };
+  SharedMemory(std::string path, size_t size);
+  SharedMemory(std::string path);
+  ~SharedMemory() { munmap(mem, size); }
 
  private:
-  std::string path;                 // TODO?
-  map<int, Component*> components;  // TODO?
+  std::string path;
 };
 
-MemoryManager* export_component(std::string path, Component* component);
-MemoryManager* export_component(
+SharedMemory* export_component(std::string path, Component* component);
+SharedMemory* export_component(
     std::string path, Component* component,
     CopyAttrib (*pack)(std::pair<std::string, void*>));
+
 Component* import_component(std::string path);
 Component* import_component(std::string path,
                             std::pair<std::string, void*> (*unpack)(
