@@ -95,14 +95,14 @@ class SharedMemory {
   std::string path;
 };
 
-SharedMemory* export_component(std::string path, Component* component);
-SharedMemory* export_component(
+SharedMemory* export_topology(std::string path, Component* component);
+SharedMemory* export_topology(
     std::string path, Component* component,
     CopyAttrib (*pack)(std::pair<std::string, void*>));
 
-Component* import_component(std::string path);
-Component* import_component(std::string path,
-                            std::pair<std::string, void*> (*unpack)(
-                                size_t size, std::pair<std::string, void*>));
+Component* import_topology(std::string path);
+Component* import_topology(std::string path,
+                           std::pair<std::string, void*> (*unpack)(
+                               size_t size, std::pair<std::string, void*>));
 
 #endif
