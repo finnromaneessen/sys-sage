@@ -328,7 +328,7 @@ void import_datapaths(SharedMemory *manager,
   }
 }
 
-SharedMemory *export_component(
+SharedMemory *export_topology(
     std::string path, Component *component,
     CopyAttrib (*pack)(std::pair<std::string, void *>)) {
   SharedMemory *manager =
@@ -338,8 +338,8 @@ SharedMemory *export_component(
   return manager;
 }
 
-SharedMemory *export_component(std::string path, Component *component) {
-  return export_component(
+SharedMemory *export_topology(std::string path, Component *component) {
+  return export_topology(
       path, component, [](std::pair<std::string, void *> attrib) -> CopyAttrib {
         return {attrib.first, 0, nullptr};
       });
@@ -434,22 +434,25 @@ Component *import_recursive(SharedMemory *manager,
   return component;
 }
 
-Component *import_component(std::string path) {
-  return import_component(
+Component *import_topology(std::string path) {
+  return import_topology(
       path,
       [](size_t size, std::pair<std::string, void *> attrib)
           -> std::pair<std::string, void *> { return attrib; });
 }
 
-Component *import_component(std::string path,
-                            std::pair<std::string, void *> (*unpack)(
-                                size_t size, std::pair<std::string, void *>)) {
+Component *import_topology(std::string path,
+                           std::pair<std::string, void *> (*unpack)(
+                               size_t size, std::pair<std::string, void *>)) {
   SharedMemory *manager = new SharedMemory(path);
-  Component *c = import_recursive(manager, unpack);
+  Component *component = import_recursive(manager, unpack);
   import_datapaths(manager, unpack);
 
+  std::cout << "IMPORT: END " << ((size_t)manager->cur - (size_t)manager->mem)
+            << std::endl;
+
   delete manager;
-  return c;
+  return component;
 }
 
 std::tuple<size_t, std::string, void *> recreate_attrib(void *src) {
@@ -507,6 +510,8 @@ void *create_shared_memory(const std::string path,
     exit(EXIT_FAILURE);
   }
 
+  close(fd);
+
   // Adjust for "header"
   *map++ = size;
 
@@ -531,6 +536,8 @@ void *open_shared_memory(const std::string path) {
     perror("Error mmapping the file");
     exit(EXIT_FAILURE);
   }
+
+  close(fd);
 
   // Adjust map for size "header"
   map += sizeof(size_t);
