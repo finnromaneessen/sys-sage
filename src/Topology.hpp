@@ -10,6 +10,7 @@
 #include "DataPath.hpp"
 #include <libxml/parser.h>
 
+#include <cstring>
 
 #define SYS_SAGE_COMPONENT_NONE 1 /**< class Component (do not use normally)*/
 #define SYS_SAGE_COMPONENT_THREAD 2 /**< class Thread */

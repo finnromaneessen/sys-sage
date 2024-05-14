@@ -14,6 +14,8 @@
 #include <map>
 #include <string>
 
+#include <cstring>
+
 #include "Topology.hpp"
 
 #define PAGE_SIZE 4096
