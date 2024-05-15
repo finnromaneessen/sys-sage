@@ -68,14 +68,6 @@ struct CopyAttrib {
     return getTotalSize();
   }
 };
-/**
- * @brief Recreates the attrib pair from shared memory
- *
- * @param src Pointer to the attrib
- * @return std::tuple<size_t, std::string, void*> Tuple of total bytes written
- * and Key-Value pair of the attrib
- */
-std::tuple<size_t, std::string, void*> recreate_attrib(void* src);
 
 class SharedMemory {
  public:

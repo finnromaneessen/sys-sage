@@ -10,10 +10,12 @@ SharedMemory::SharedMemory(std::string path) {
   mem = open_shared_memory(path);
   cur = (char *)mem;
 
-  size = *((size_t *)mem - 1);
+  if (mem) {
+    size = *((size_t *)mem - 1);
+  }
 }
 
-size_t att(std::map<std::string, void *> *attribs,
+size_t attrib_memory_size(std::map<std::string, void *> *attribs,
            CopyAttrib (*pack)(std::pair<std::string, void *>)) {
   size_t size = 0;
   for (const auto &a : *attribs) {
@@ -23,22 +25,22 @@ size_t att(std::map<std::string, void *> *attribs,
   return size;
 }
 
-size_t attrib_memory_size(Component *comp,
+size_t size_attribs_recursive(Component *comp,
                           CopyAttrib (*pack)(std::pair<std::string, void *>)) {
-  size_t size = att(&(comp->attrib), pack);
+  size_t size = attrib_memory_size(&(comp->attrib), pack);
 
   for (const auto &dp : *(comp->GetDataPaths(SYS_SAGE_DATAPATH_OUTGOING))) {
-    size += att(&(dp->attrib), pack);
+    size += attrib_memory_size(&(dp->attrib), pack);
     size += 2 * sizeof(size_t);  // Account for DataPath copy overhead
   }
 
   for (const auto &dp : *(comp->GetDataPaths(SYS_SAGE_DATAPATH_INCOMING))) {
-    size += att(&(dp->attrib), pack);
+    size += attrib_memory_size(&(dp->attrib), pack);
     size += 2 * sizeof(size_t);  // Account for DataPath copy overhead
   }
 
   for (const auto &c : *(comp->GetChildren())) {
-    size += attrib_memory_size(c, pack);
+    size += size_attribs_recursive(c, pack);
   }
 
   return size;
@@ -48,13 +50,34 @@ size_t calc_memory_size(Component *tree,
                         CopyAttrib (*pack)(std::pair<std::string, void *>)) {
   unsigned a, b;
   size_t min_size = tree->GetTopologySize(&a, &b);
-  min_size += attrib_memory_size(tree, pack);
+  min_size += size_attribs_recursive(tree, pack);
 
   size_t tmp = (min_size + PAGE_SIZE - 1) & -PAGE_SIZE;
 
-  std::cout << "calc_memory_size(): " << tmp << " | " << min_size << std::endl;
-
   return tmp;
+}
+
+std::tuple<size_t, std::string, void *> recreate_attrib(void *src) {
+  char *cur = (char *)src;
+
+  // Create key
+  std::string key(cur);
+  cur += key.size() + 1;
+
+  // Read size of data
+  size_t size = *(size_t *)cur;
+  cur += sizeof(size_t);
+
+  // Create Value
+  void *val = malloc(size);
+  if (!val) {
+    return {0, "", nullptr};
+  }
+
+  memcpy(val, cur, size);
+
+  size_t total_size = key.size() + 1 + sizeof(size_t) + size;
+  return {total_size, key, val};
 }
 
 CopyAttrib pack_default(std::pair<std::string, void *> attrib) {
@@ -97,7 +120,7 @@ CopyAttrib pack_default(std::pair<std::string, void *> attrib) {
             val->data()};
   }
 
-  if (!key.compare("GPU_Clock_Rate")) {  // TODO Long strings
+  if (!key.compare("GPU_Clock_Rate")) {
     return {key, sizeof(std::tuple<double, std::string>), value};
   }
 
@@ -152,9 +175,6 @@ void export_attribs(SharedMemory *manager,
 
 size_t export_recursive(SharedMemory *manager, Component *component,
                         CopyAttrib (*pack)(std::pair<std::string, void *>)) {
-  // std::cout << "----- Export ID " << component->GetId() << " -----"
-  //          << std::endl;
-
   // Get own size
   auto size_comp = 0;
   switch (component->GetComponentType()) {
@@ -285,6 +305,30 @@ void export_datapaths(SharedMemory *manager,
   }
 }
 
+SharedMemory *export_topology(
+    std::string path, Component *component,
+    CopyAttrib (*pack)(std::pair<std::string, void *>)) {
+  SharedMemory *manager =
+      new SharedMemory(path, calc_memory_size(component, pack));
+
+  //----- Error Handling -----
+  if (!(manager->mem)) {
+    return nullptr;
+  }
+
+  //----- Export -----
+  export_recursive(manager, component, pack);
+  export_datapaths(manager, pack);
+  return manager;
+}
+
+SharedMemory *export_topology(std::string path, Component *component) {
+  return export_topology(
+      path, component, [](std::pair<std::string, void *> attrib) -> CopyAttrib {
+        return {attrib.first, 0, nullptr};
+      });
+}
+
 void import_attribs(SharedMemory *manager,
                     std::map<std::string, void *> *attribs,
                     std::pair<std::string, void *> (*unpack)(
@@ -292,6 +336,7 @@ void import_attribs(SharedMemory *manager,
   size_t num_attribs = *(size_t *)manager->cur;
   manager->cur += sizeof(size_t);
 
+  std::cout << "IMPORT num_attribs = " << num_attribs << std::endl;
   for (size_t i = 0; i < num_attribs; i++) {
     const auto [total_size, key, value] = recreate_attrib(manager->cur);
     size_t size_attrib = total_size - (key.size() + 1 + sizeof(size_t));
@@ -328,28 +373,9 @@ void import_datapaths(SharedMemory *manager,
   }
 }
 
-SharedMemory *export_topology(
-    std::string path, Component *component,
-    CopyAttrib (*pack)(std::pair<std::string, void *>)) {
-  SharedMemory *manager =
-      new SharedMemory(path, calc_memory_size(component, pack));
-  export_recursive(manager, component, pack);
-  export_datapaths(manager, pack);
-  return manager;
-}
-
-SharedMemory *export_topology(std::string path, Component *component) {
-  return export_topology(
-      path, component, [](std::pair<std::string, void *> attrib) -> CopyAttrib {
-        return {attrib.first, 0, nullptr};
-      });
-}
-
 Component *import_recursive(SharedMemory *manager,
                             std::pair<std::string, void *> (*unpack)(
                                 size_t size, std::pair<std::string, void *>)) {
-  // std::cout << "----- Import -----" << std::endl;
-
   Component *com = (Component *)manager->cur;
   Component *component = nullptr;
 
@@ -424,7 +450,7 @@ Component *import_recursive(SharedMemory *manager,
   auto children_data =
       (size_t *)((char *)manager->mem +
                  cp_children
-                     ->offset);  // TODO Actually copy data out of shared memory
+                     ->offset);
 
   for (size_t i = 0; i < cp_children->size; i++) {
     manager->cur = (char *)manager->mem + *(children_data++);
@@ -444,61 +470,37 @@ Component *import_topology(std::string path) {
 Component *import_topology(std::string path,
                            std::pair<std::string, void *> (*unpack)(
                                size_t size, std::pair<std::string, void *>)) {
-  SharedMemory *manager = new SharedMemory(path);
-  Component *component = import_recursive(manager, unpack);
-  import_datapaths(manager, unpack);
+  SharedMemory *shmem = new SharedMemory(path);
 
-  std::cout << "IMPORT: END " << ((size_t)manager->cur - (size_t)manager->mem)
-            << std::endl;
+  // ----- Error Handling -----
+  if (!(shmem->mem)) {
+    return nullptr;
+  }
 
-  delete manager;
+  // ----- Import -----
+  Component *component = import_recursive(shmem, unpack);
+  import_datapaths(shmem, unpack);
+
+  delete shmem;
   return component;
 }
 
-std::tuple<size_t, std::string, void *> recreate_attrib(void *src) {
-  char *cur = (char *)src;
-
-  // Create key
-  std::string key(cur);
-  cur += key.size() + 1;
-
-  // Read size of data
-  size_t size = *(size_t *)cur;
-  cur += sizeof(size_t);
-
-  // Create Value
-  void *val = malloc(size);
-  if (!val) {
-    std::cout << "recreate_attrib(): ERROR (malloc failed)\n";
-    return {0, "", nullptr};  // TODO Error Handling?
-  }
-
-  memcpy(val, cur, size);
-
-  size_t total_size = key.size() + 1 + sizeof(size_t) + size;
-  return {total_size, key, val};
-}
-
-void *create_shared_memory(const std::string path,
-                           size_t size) {  // TODO Error handling (No exit)
+void *create_shared_memory(const std::string path, size_t size) {
   int fd = open(path.c_str(), O_RDWR | O_CREAT | O_TRUNC, (mode_t)0600);
   if (fd == -1) {
-    perror("Error opening file for writing");
-    exit(EXIT_FAILURE);
+    return nullptr;
   }
 
   int res = lseek(fd, size - 1, SEEK_SET);
   if (res == -1) {
     close(fd);
-    perror("Error calling lseek() to 'stretch' the file");
-    exit(EXIT_FAILURE);
+    return nullptr;
   }
 
   res = write(fd, "", 1);
   if (res != 1) {
     close(fd);
-    perror("Error writing last byte of the file");
-    exit(EXIT_FAILURE);
+    return nullptr;
   }
 
   size_t *map =
@@ -506,8 +508,7 @@ void *create_shared_memory(const std::string path,
 
   if (map == MAP_FAILED) {
     close(fd);
-    perror("Error mmapping the file");
-    exit(EXIT_FAILURE);
+    return nullptr;
   }
 
   close(fd);
@@ -521,20 +522,18 @@ void *create_shared_memory(const std::string path,
 void *open_shared_memory(const std::string path) {
   int fd = open(path.c_str(), O_RDONLY);
   if (fd == -1) {
-    perror("Error opening file for reading");
-    exit(EXIT_FAILURE);
+    return nullptr;
   }
 
   // Create mapping, read size and remap
   size_t *tmp = (size_t *)mmap(0, sizeof(size_t), PROT_READ, MAP_SHARED, fd, 0);
   size_t size = *tmp;
-  munmap(tmp, size);
+  munmap(tmp, sizeof(size_t));
   char *map = (char *)mmap(0, size, PROT_READ, MAP_SHARED, fd, 0);
 
   if (map == MAP_FAILED) {
     close(fd);
-    perror("Error mmapping the file");
-    exit(EXIT_FAILURE);
+    return nullptr;
   }
 
   close(fd);
