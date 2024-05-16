@@ -16,7 +16,7 @@ SharedMemory::SharedMemory(std::string path) {
 }
 
 size_t attrib_memory_size(std::map<std::string, void *> *attribs,
-           CopyAttrib (*pack)(std::pair<std::string, void *>)) {
+                          CopyAttrib (*pack)(std::pair<std::string, void *>)) {
   size_t size = 0;
   for (const auto &a : *attribs) {
     auto [key, size_attrib, ptr] = pack(a);
@@ -25,8 +25,8 @@ size_t attrib_memory_size(std::map<std::string, void *> *attribs,
   return size;
 }
 
-size_t size_attribs_recursive(Component *comp,
-                          CopyAttrib (*pack)(std::pair<std::string, void *>)) {
+size_t size_attribs_recursive(
+    Component *comp, CopyAttrib (*pack)(std::pair<std::string, void *>)) {
   size_t size = attrib_memory_size(&(comp->attrib), pack);
 
   for (const auto &dp : *(comp->GetDataPaths(SYS_SAGE_DATAPATH_OUTGOING))) {
@@ -336,7 +336,6 @@ void import_attribs(SharedMemory *manager,
   size_t num_attribs = *(size_t *)manager->cur;
   manager->cur += sizeof(size_t);
 
-  std::cout << "IMPORT num_attribs = " << num_attribs << std::endl;
   for (size_t i = 0; i < num_attribs; i++) {
     const auto [total_size, key, value] = recreate_attrib(manager->cur);
     size_t size_attrib = total_size - (key.size() + 1 + sizeof(size_t));
@@ -447,10 +446,7 @@ Component *import_recursive(SharedMemory *manager,
 
   // ----- Import Children -----
   CopyVector *cp_children = (CopyVector *)(com->GetChildren());
-  auto children_data =
-      (size_t *)((char *)manager->mem +
-                 cp_children
-                     ->offset);
+  auto children_data = (size_t *)((char *)manager->mem + cp_children->offset);
 
   for (size_t i = 0; i < cp_children->size; i++) {
     manager->cur = (char *)manager->mem + *(children_data++);
